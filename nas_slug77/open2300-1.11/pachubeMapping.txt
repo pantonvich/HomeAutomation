@@ -1,0 +1,34 @@
+0	soil	a2, ea
+1	pond	e6, fd
+2	indoor temp col3 "&indoortempf="
+3 indoor humidity col6 "&indoorhumidity="
+4 outdoor temp col4 "&tempf="
+5 dewpoint col5 "&dewptf="
+6 outdoor humidity col7 "&humidity="
+7 wind speed  col8 "&windspeedmph="
+8 wind direction col9 "&winddir=", col10
+windchill col11
+9 wind gust "&windgustmph="
+10 rain 1hr col12 "&rainin="
+11 rain 24hrs col13 "&dailyrainin="
+rain total col14 
+12 relative pressure col15 "&baromin=" convert to inches_hg
+forecast col16,col17
+13 wetness	R0
+14 lightness P0,PA
+15 basement a5
+16 hvac out 26, 98
+17 hvac return e4
+18 attic 6a
+19 5min watts K5
+20 Gas G5
+21 Total Watts K0
+22 Total Gas G0
+23 Lightning Tl
+24 Lightning T6
+25 front picture counts Cf
+26 Water H0
+27 Total Water H5
+
+0              1		   2        3    4    5    6  7  8   9     10  11   12   13   14    15       16      17
+20110801000005 2011-Aug-01 00:00:05 78.4 84.0 71.0 61 65 0.0 112.5 ESE 84.0 0.00 0.00 55.37 1016.500 Falling Cloudy 

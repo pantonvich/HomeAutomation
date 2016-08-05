@@ -1,0 +1,218 @@
+#define DEBUG 1  // wu2300 stops writing to standard out if setting this to 0 #define GUST  1  // report wind gust information (resets wind min/max)
+
+//#include "win2300.h"
+//#include <string.h>
+//#include <fcntl.h>
+#include <stdio.h>
+//#include <time.h>
+//#include <stdlib.h>
+//#include <stdbool.h>
+//#include <math.h>
+//#include <sys/types.h>
+//#include <sys/stat.h>
+
+//#define _Bool   bool 
+//#define bool    _Bool 
+//#define false   0 
+//#define true    1 
+
+#define VERSION ".1w"
+
+void print_usage(void)
+{
+	printf("\n");
+	printf("tempCalc - Read and interpret data\n");
+	printf("arg1 filepath name.\n");
+	printf("arg2 datestamp to search for  12:00: \n");
+	printf("arg3 tag that has value [K0] \n");
+	printf("arg4 totals 0/1 (off/on) \n");
+	printf("\n");
+	exit(0);
+}
+int main(int argc, char *argv[])
+{
+
+	FILE *fileptr;
+	
+	char str[3000];
+	//char strdate[11];
+
+	if (argc < 2 ) //|| argc > 3)
+	{
+		print_usage();
+	}
+
+
+	/* Get log filename. */
+	fileptr = fopen(argv[1], "r");
+	if (fileptr == NULL)
+	{
+		printf("Cannot open file %s\n",argv[1]);
+		exit(-1);
+	}
+	{
+		// 00:00:
+		//char *timestr = argv[2]; 
+		 //[K0]
+		char *searchTag = argv[3];
+		//0 off 1 on
+		char *totalsFlag = argv[4]; 
+		char *foundPos;
+
+		long totalMonth = 0;
+		long totalDay = 0;
+		long rtnValue;
+		//long lastValue = 0;
+		int curDay = 0;
+		int curHr = 0;
+		long hourly[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+		//long hourlyOffset=0;
+		//long hourlyLastDay = 0;
+		
+		//int firstHourly = 0;
+		int lastDay = 0;
+		//int offsetValue =0;
+		long lastRead = 0;
+		int firstRead = 1;
+		int i;
+		//long rtnValuePeroid;
+		//long curValue;
+		//int foundPeriod;
+
+		while(! feof(fileptr))
+		{
+			fscanf(fileptr, "\n%[^\n]", str);
+
+			foundPos = strstr(str,"-");
+			if (foundPos)
+			{
+				if ((foundPos-5)[0] == ' ')
+				{
+					//2011-Dec-07 01:
+					curDay = ((foundPos+5)[0] - '0') * 10 + (foundPos+6)[0] - '0';
+					curHr = ((foundPos+8)[0] - '0') * 10 + (foundPos+9)[0] - '0';
+				}
+				else if ((foundPos-3)[0] == ' ')
+				{	
+					//30-Mar-2013 20:
+					curDay = ((foundPos-2)[0] - '0') * 10 + (foundPos-1)[0] - '0';
+					curHr = ((foundPos+10)[0] - '0') * 10 + (foundPos+11)[0] - '0';
+				}
+
+			}
+
+			if (firstRead == 0 && lastDay != curDay)
+			{
+					if (lastDay != 0)
+					{
+						printf("%6ld",totalDay);
+
+						//check if we want totals shown
+						if (totalsFlag[0] == '1')
+						{
+							totalMonth += totalDay;
+							printf("%7ld",totalMonth);
+						}
+							
+						totalDay=0;
+
+						printf("%6ld", hourly[0] + hourly[1]+ hourly[2]+ hourly[3]+ hourly[4]+ hourly[5]);
+						printf("%6ld", hourly[6] + hourly[7]+ hourly[8]+ hourly[9]+ hourly[10]+ hourly[11]);
+						printf("%6ld", hourly[12] + hourly[13]+ hourly[14]+ hourly[15]+ hourly[16]+ hourly[17]);
+						printf("%6ld", hourly[18] + hourly[19]+ hourly[20]+ hourly[21]+ hourly[22]+ hourly[23]);
+						
+						for(i=0;i<24;i++)
+						{
+
+							hourly[i] = 0;
+						}
+						printf("\n");
+					}
+
+
+					//foundPos = strstr(str,"-");	
+					//next print date
+					if ((foundPos-5)[0] == ' ')
+						printf("%.*s", 11, foundPos - 4);
+					else if ((foundPos-3)[0] == ' ')
+						printf("%.*s", 11, foundPos - 2);
+
+					lastDay = curDay;
+			}
+			
+			//find Tag i.e. [K0]
+			foundPos = strstr(str,searchTag);
+			if (foundPos)
+			{
+				//skip over or start after tag sizeof [K0] = 4
+				foundPos += sizeof(searchTag);
+				rtnValue = 0;
+
+				//only want numbers everything else is the end...
+				//strip off leading zeros "00012"
+				while((foundPos[0] >= '0' && foundPos[0] <= '9') )  
+				{
+					rtnValue = rtnValue * 10 + foundPos[0] - '0';
+					foundPos++;
+				} 
+				
+				if (firstRead)
+				{
+					lastRead=rtnValue;
+					firstRead = 0;
+				}
+				else if (curHr >-1 && curHr<24)
+				{
+					if (rtnValue == lastRead)
+					{
+						//printf("");
+					} 
+					else if (rtnValue < lastRead)
+					{
+						hourly[curHr] +=  rtnValue;
+						totalDay += rtnValue;
+					} 
+					else 
+					{
+						hourly[curHr] +=  rtnValue - lastRead;
+						totalDay += rtnValue - lastRead;
+					}
+				}
+
+				lastRead=rtnValue;
+			}
+			
+			
+			//lastValue = rtnValue;
+
+
+		}
+		//last day in file
+		printf("%6ld",totalDay);
+
+		//check if we want totals shown
+		if (totalsFlag[0] == '1')
+		{
+			totalMonth += totalDay;
+			printf(" %7ld",totalMonth);
+		}
+			
+		//totalDay=0;
+		printf("%6ld", hourly[0] + hourly[1]+ hourly[2]+ hourly[3]+ hourly[4]+ hourly[5]);
+		printf("%6ld", hourly[6] + hourly[7]+ hourly[8]+ hourly[9]+ hourly[10]+ hourly[11]);
+		printf("%6ld", hourly[12] + hourly[13]+ hourly[14]+ hourly[15]+ hourly[16]+ hourly[17]);
+		printf("%6ld", hourly[18] + hourly[19]+ hourly[20]+ hourly[21]+ hourly[22]+ hourly[23]);
+		
+		for(i=0;i<24;i++)
+		{
+
+			hourly[i] = 0;
+		}
+		printf("\n");
+
+	}
+	fclose(fileptr);
+
+return(0);
+
+}

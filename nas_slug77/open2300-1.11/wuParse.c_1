@@ -1,0 +1,161 @@
+#include <string.h>
+//#include <fcntl.h>
+#include <stdio.h>
+//#include <time.h>
+#include <stdlib.h>
+//#include <stdbool.h>
+#include <math.h>
+
+#define OutputLine "%s<br />\n"
+
+//C:\Users\pantonvi\Documents\personal\Arduino\Logs\wu-201003.log 
+
+//3:Indoor, 4:outdoor, 5:dewpoint,6:Hum In,7:Hum Out, 8:speed, 9:direction, 10:direction string, 11:windchill, 12:rain 1H, 13:24HR, 14:Total,15:Relative Press, 16:Tendency and 17:Forecast
+const int ColTempIn = 3;
+const int ColTempOut = 4;
+const int ColHumIn = 6;
+const int ColHumOut = 7;
+const int ColRainTot = 15;
+const int HI = 0;
+const int LOW = 1;
+const int AVG = 2;
+
+void maxminavg(char* s,long* v,long invalid);
+void reset(long* v);
+
+
+int main(int argc, char *argv[])
+{
+	FILE *fileptr;
+	char str[3000];
+	//char *foundPos;
+	//char lastPos[50] = "";
+	int printLine = 0;
+	
+	char *pch;
+	//const int numOfStrings = 20;
+	char strArray[20][20];
+	int pos = 0;
+	//int j = 0;
+
+	long iT[3], oT[3], iH[3], oH[3];
+
+	double rain24 = 0.0;
+	char day[20]; //= "2014\0";
+	//char dayChk[20];
+	int ct = 0;
+	double t;
+
+	int curDay;
+	int lstDay=0;
+	int argcPos=1;
+	
+	strncpy(day,"2004\0",sizeof(day));
+
+	if (argc < 1 ) //|| argc > 3)
+	{
+		printf(OutputLine,"No file specified\n");
+	}
+	/* Get log filename. */
+	//fileptr = fopen( "C:\\Users\\pantonvi\\Documents\\personal\\Arduino\\Logs\\wu-201410.log" , "r");
+	while(argcPos < argc)
+	{
+		/* Get log filename. */
+		fileptr = fopen(argv[argcPos], "r");
+		//fileptr = fopen(argv[1], "r");
+		if (fileptr == NULL)
+		{
+			printf("Cannot open file %s\n",argv[1]);
+			exit(-1);
+		}
+
+		while(! feof(fileptr))
+		{
+			fscanf(fileptr, "\n%[^\n]", str);
+			pos = 0;
+			pch = strtok (str," ");
+			while (pch != NULL)
+			{
+				strcpy(strArray[pos],pch);
+				pch = strtok (NULL, " ");
+				pos++;
+			}
+
+			//2011-Dec-07 01:
+			curDay = ((strArray[1]+9)[0] - '0') * 10 + (strArray[1]+10)[0] - '0';
+			//curHr = ((foundPos+8)[0] - '0') * 10 + (foundPos+9)[0] - '0';
+
+			if(curDay != lstDay)
+			{   
+				if(lstDay > 0){
+					t = atof(strArray[ColRainTot]);
+					if ( lstDay < 10) printf("0"); 
+	//				 printf("%ld i:%3.1f %3.1f %3.1f o:%3.1f %3.1f %3.1f i:%3.0f %3.0f %3.0f o:%3.0f %3.0f %3.1f r:%3.2f<br/>\n",lstDay,
+					 printf("%ld i:%3ld %3ld %3ld o:%3ld %3ld %3ld i:%3ld %3ld %3ld o:%3ld %3ld %3ld r:%3.2f<br/>\n",lstDay,
+						iT[HI], iT[LOW],iT[AVG]/ct,
+						oT[HI], oT[LOW],oT[AVG]/ct,
+						iH[HI], iH[LOW],iH[AVG]/ct,
+						oH[HI], oH[LOW],oH[AVG]/ct,
+						t - rain24);
+					 rain24 = t;
+
+					 if (lstDay > curDay) printf("<br/>\n");
+				}
+
+				reset(iT);
+				reset(oT);
+				reset(iH);
+				reset(oH);
+				ct = 0;
+				lstDay = curDay;
+			} 
+
+			maxminavg(strArray[ColTempIn],iT,1767);
+			maxminavg(strArray[ColTempOut],oT,1767);
+			maxminavg(strArray[ColHumIn],iH,1100);
+			maxminavg(strArray[ColHumOut],oH,1100);
+
+			ct++;
+
+		}
+		fclose(fileptr);
+		argcPos++;
+
+
+	}
+	
+	if(lstDay > 0){
+	t = atof(strArray[ColRainTot]);
+	if ( lstDay < 10) printf("0"); 
+//				 printf("%ld i:%3.1f %3.1f %3.1f o:%3.1f %3.1f %3.1f i:%3.0f %3.0f %3.0f o:%3.0f %3.0f %3.1f r:%3.2f<br/>\n",lstDay,
+		printf("%ld i:%3ld %3ld %3ld o:%3ld %3ld %3ld i:%3ld %3ld %3ld o:%3ld %3ld %3ld r:%3.2f<br/>\n",lstDay,
+		iT[HI], iT[LOW],iT[AVG]/ct,
+		oT[HI], oT[LOW],oT[AVG]/ct,
+		iH[HI], iH[LOW],iH[AVG]/ct,
+		oH[HI], oH[LOW],oH[AVG]/ct,
+		t - rain24);
+
+	}
+	//always print lastline
+	//if (str != NULL && printLine == 0) printf(OutputLine, str);
+	printf(OutputLine,"");
+
+	return(0);
+}
+
+void maxminavg(char* s,long* v,long invalid)
+{
+	long t = atof(s) * 10;
+	if (t < invalid) {
+		if (v[HI] < t) v[HI] = t;
+		if (v[LOW] > t) v[LOW] = t;
+		if (sizeof(v)>2) v[AVG] += t;
+	}
+}
+
+void reset(long* v)
+{
+	v[HI] = -999;
+	v[LOW] = 9999;
+	if (sizeof(v)>2) v[AVG] =0;
+}

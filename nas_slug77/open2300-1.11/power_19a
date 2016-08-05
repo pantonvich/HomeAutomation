@@ -1,0 +1,438 @@
+/*
+* Web Server
+*
+* A simple web server that shows the value of the analog input pins.
+*/
+
+#include <Ethernet.h>
+#include <OneWire.h>
+
+#define moisture_input -1
+#define rain_detector_input 1
+#define pyranometer_input 2
+#define power_input 0
+
+#define divider_top 2
+#define divider_bottom 3
+
+byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+byte ip[] = { 192, 168, 0, 177 };
+byte rip[4];
+
+int moisture; // analogical value obtained from the experiment
+
+Server server(80);
+Client client(80);
+
+// client
+#define STRING_BUFFER_SIZE 200
+#define OUT_SIZE 1200
+char buffer[STRING_BUFFER_SIZE];
+char outbuffer[OUT_SIZE];
+
+int bufindex = 0; // reset buffer
+int outbufindex = 0;
+
+unsigned long pyramometerTotal = 0;
+unsigned long rainDetectorTotal = 0;
+unsigned long count = 0;
+unsigned long lastconnect=millis();
+
+void setup()
+{
+  Ethernet.begin(mac, ip);
+  server.begin();
+  analogReference(DEFAULT);
+  pinMode(power_input, INPUT);
+  pinMode(pyranometer_input, INPUT);
+  pinMode(rain_detector_input, INPUT);
+  
+  Serial.begin(9600);
+}
+
+void loop()
+{
+  count++;
+  rainDetectorTotal += analogRead(rain_detector_input);
+  PyranometerRead();
+  PowerLoop();
+  char c;
+  if (bufindex > 0)
+  {
+    while (bufindex>0){
+    buffer[bufindex--] = '\0';
+    }
+   // bufindex = 0; // reset buffer
+  }//Serial.println("reset");
+  
+  int flag = 0;
+  
+  client = server.available();
+  if (client) {
+
+    client.getRemoteIP(rip);
+    // an http request ends with a blank line
+    boolean current_line_is_blank = true;
+    while (client.connected()) {
+      if (client.available()) {
+        c = client.read();
+        if (bufindex<STRING_BUFFER_SIZE && flag<2) 
+        {
+          if (flag==1 && c==' ')
+            flag=2;
+          
+          if (flag==1) {           
+            buffer[bufindex] = c;
+            bufindex++; 
+          }
+          
+          if (flag==0 && c == '/') 
+            flag = 1;
+        }
+        
+        // if we've gotten to the end of the line (received a newline
+        // character) and the line is blank, the http request has ended,
+        // so we can send a reply
+        if (c == '\n' && current_line_is_blank) {
+          // send a standard http response header
+          //client.println("HTTP/1.1 200 OK");
+          //client.println("Content-Type: text/html");
+          //client.println();
+    //      Serial.print("GetOneWireTemps\n");
+          GetOneWireTemps(7);
+          GetOneWireTemps(6);
+          SoilMoisture();
+          Print();
+          client.println(buffer);
+          //client.println("<br />");
+          client.println();
+          outbuffer[outbufindex++] = '\0';
+          client.println(outbuffer);
+          outbufindex =0;
+              
+
+          //
+          // output the value of each analog input pin
+          //for (int i = 0; i < 6; i++) {
+          //  client.print("analog input ");
+          //  client.print(i);
+          //  client.print(" is ");
+          //  client.print(analogRead(i));
+          //  client.println("<br />");
+          //}
+
+          break;
+        }
+        if (c == '\n') {
+          // we're starting a new line
+          current_line_is_blank = true;
+        } else if (c != '\r') {
+          // we've gotten a character on the current line
+          current_line_is_blank = false;
+        }
+      }
+    }
+    // give the web browser time to receive the data
+    delay(1);
+    client.stop();
+  }
+ 
+}
+
+void GetOneWireTemps(int  pinToRead) {
+    int HighByte, LowByte, TReading, SignBit, Tc_100, Whole, Fract, Tf_100;
+    OneWire  ds(pinToRead);
+    byte i;
+    byte present = 0;
+    byte data[12];
+    byte addr[8];
+    int ct = 0;
+    
+    while (ct != -1) {
+      if ( !ds.search(addr)) {
+        ds.reset_search();
+        return;
+      }
+
+      if ( OneWire::crc8( addr, 7) != addr[7]) {
+        //Serial.print("CRC is not valid!\n");
+//        buffer[bufindex++] = '-';
+//        buffer[bufindex++] = '2';      
+//        buffer[bufindex++] = '5';      
+//        buffer[bufindex++] = '5';
+        //client.print("-255");
+        //Serial.print("-255");
+        return;
+      }
+    
+ //     if ( addr[0] == 0x28) {
+        //Serial.print(++ct);
+   //     return;
+ //     }
+  if ( addr[0] == 0x28) {
+   //     Serial.print("OK\n");
+   //     return;
+  
+    // The DallasTemperature library can do all this work for you!
+  
+    ds.reset();
+    ds.select(addr);
+    ds.write(0x44,0);         // start conversion, with parasite power on at the end
+    delay(2);
+    //delay(1000);     // maybe 750ms is enough, maybe not
+    // we might do a ds.depower() here, but the reset will take care of it.
+    
+    present = ds.reset();
+    ds.select(addr);    
+    ds.write(0xBE);         // Read Scratchpad
+  
+    for ( i = 0; i < 9; i++) {           // we need 9 bytes
+      data[i] = ds.read();
+    }
+  
+    LowByte = data[0];
+    HighByte = data[1];
+    TReading = (HighByte << 8) + LowByte;
+    SignBit = TReading & 0x8000;  // test most sig bit
+    if (SignBit) // negative
+    {
+      TReading = (TReading ^ 0xffff) + 1; // 2's comp
+    }
+    Tc_100 = (6 * TReading) + TReading / 4;    // multiply by (100 * 0.0625) or 6.25
+  
+    //Tf_100 = (9/5)*Tc_100+32;
+    //Whole = ((9 * Tc_100 / 5) + 3200) / 100;  // separate off the whole and fractional portions
+    //Fract = ((9 * Tc_100 / 5) + 3200) % 100;
+    int W100, W10, W1, F1, F10;
+    char temp[6];
+    
+    itoa(addr[7],temp,16);
+    buffer[bufindex++] = '[';
+    buffer[bufindex++] = temp[0];
+    buffer[bufindex++] = temp[1];
+    buffer[bufindex++] = ']';
+    
+    W100 = Tc_100 / 10000;
+    W10 = Tc_100 / 1000 - W100 * 10;
+    W1 =  Tc_100 / 100 - W10 * 10 - W100 * 100;
+    F1 =  Tc_100 / 10 - W1 *10  - W10 * 100 - W100 * 1000;
+    F10 = Tc_100 - F1 * 10 - W1 * 100 - W10 * 1000 - W100 * 10000;
+    
+    if (SignBit) {
+      buffer[bufindex++] = '-';
+    }
+   
+   buffer[bufindex++] = 48+W100;
+   buffer[bufindex++] = 48+W10;
+   buffer[bufindex++] = 48+W1;
+   buffer[bufindex++] = '.';
+   buffer[bufindex++] = 48+F1;
+   buffer[bufindex++] = 48+F10;
+
+    }
+    }
+  }
+int pr = 0;
+float pyranometerReading = 0.0;
+void PyranometerRead(){
+ pr = analogRead(pyranometer_input);
+ pyranometerReading += .01 * (pr-pyranometerReading);  
+ pyramometerTotal += pr;
+}
+
+void SoilMoisture(){
+  
+  if (moisture_input == -1) {
+    bPrint('S','0',0,1000);
+    return; 
+  }
+  int reading;
+  int D1000, D100, D10, D1;
+  // set driver pins to outputs
+  pinMode(divider_top,OUTPUT);
+  pinMode(divider_bottom,OUTPUT);
+
+  // drive a current through the divider in one direction
+  digitalWrite(divider_top,LOW);
+  digitalWrite(divider_bottom,HIGH);
+
+  // wait a moment for capacitance effects to settle
+  delay(1000);
+
+  // take a reading
+  reading=analogRead(moisture_input);
+
+    buffer[bufindex++] = '[';
+    buffer[bufindex++] = 'S';
+    buffer[bufindex++] = '0';
+    buffer[bufindex++] = ']';
+    
+    D1000 = reading/1000;
+    D100 = reading/100 -D1000*10;
+    D10 = reading/10 -D1000*100 -D100*10;
+    D1 = reading -D1000*1000 -D100*100 - D10 * 10; 
+    
+   buffer[bufindex++] = 48+D1000;
+   buffer[bufindex++] = 48+D100;
+   buffer[bufindex++] = 48+D10;
+   buffer[bufindex++] = 48+D1;
+   
+  // reverse the current
+  digitalWrite(divider_top,HIGH);
+  digitalWrite(divider_bottom,LOW);
+
+  // give as much time in 'reverse' as in 'forward'
+  delay(1000);
+
+  // stop the current
+  digitalWrite(divider_bottom,LOW);
+
+  
+}
+
+
+unsigned long counter = 0;
+unsigned long counterLast = 0;
+unsigned long lastBlink = 0;
+float blinkLength = 80;
+float blinkRate = 200;
+int rArgBlink = 1;
+float filterR = 600;
+float filterH = 600;
+float filterC = 600;
+float maxL = 1;
+float maxH = 0;
+int r = 0;
+
+void PowerLoop() {
+  
+  r = analogRead(power_input);
+  filterR += .55 * (r-filterR);
+  filterH += .01 * (r-filterH);
+  filterC += .9 * (r-filterC);
+  
+  if (filterC/filterH < maxL) maxL = filterC/filterH;
+  if (filterC/filterH > maxH) maxH = filterC/filterH;
+  
+  serialPrint();
+  
+  if ((filterC/filterH <.9 && rArgBlink ==1 && millis()-lastBlink > 50) || lastBlink > millis())
+  {
+      rArgBlink = 0;
+      counter++;
+      float rate = millis()-lastBlink;
+      if(rate>0) blinkRate += .05 *(rate-blinkRate);
+      lastBlink = millis();   
+  }
+  else if (filterC/filterH > 1.01 && rArgBlink == 0)
+  {
+    if ( millis()-lastBlink > 30|| lastBlink > millis()){
+      float rate = millis()-lastBlink;
+      if (rate>0) blinkLength +=  .05*(rate-blinkLength);
+      rArgBlink = 1;
+    } else {
+      //lastBlink = millis();
+    }
+  }
+ 
+}
+void Print() {
+
+   bPrint('K','0',counter,1000000);
+
+   if (rip[3] == 77 && ( millis()-lastconnect)<30000){
+     bPrint('K','5',counter - counterLast ,10000); 
+     counterLast = counter;
+   } else {
+     bPrint('K','P',counter - counterLast ,10000);      
+   }
+   
+   bPrint('B','L',blinkLength,10000);
+
+   bPrint('B','R',blinkRate,10000);
+   
+   bPrint('M','H',maxH*1000,100000);
+ 
+   bPrint('M','L',maxL*1000,1000);
+   
+   bPrint('f','R',filterR,1000);
+   bPrint('f','H',filterH,1000);
+   bPrint('f','C',filterC,1000);
+   
+   maxH = 0;
+   maxL = 1;
+   
+   bPrint('P','0',pyranometerReading*100,1000);
+  
+   bPrint('P','A',pyramometerTotal/(count/100),1000000);
+  
+   bPrint('R','0',analogRead(rain_detector_input),1000);
+
+   bPrint('R','A',rainDetectorTotal/count,1000);
+     
+   bPrint('I','P',(long)rip[3],100);
+
+   if (rip[3] == 77 && ( millis()-lastconnect)<30000){
+     pyramometerTotal=0;
+     rainDetectorTotal=0;
+     count=0;
+   }  
+   if (rip[3] == 77){
+    lastconnect = millis();
+   } 
+ }
+
+void bPrint(char c1, char c2, unsigned long reading,unsigned long i){
+   buffer[bufindex++] = '[';
+   buffer[bufindex++] = c1;
+   buffer[bufindex++] = c2;
+   buffer[bufindex++] = ']';
+   BufferPrint(reading,i); 
+}
+void BufferPrint(unsigned long reading,unsigned long i) {
+  unsigned long temp; 
+  while (i>0){
+     temp = reading/i;
+     reading -= temp * i;
+     buffer[bufindex++] = 48+temp;
+     i/=10;
+    }
+  
+}  
+void OutBufferPrint(unsigned long reading,unsigned long i) {
+  unsigned long temp; 
+  while (i>0){
+     temp = reading/i;
+     reading -= temp * i;
+     outbuffer[outbufindex++] = 48+temp;
+     i/=10;
+    }
+  outbuffer[outbufindex++] =',';
+}  
+void serialPrint()
+{
+ if(false){
+  if(outbufindex<(OUT_SIZE-10)){
+    if(r>999){
+      OutBufferPrint(r,1000);
+    }
+    else if(r>99){
+      OutBufferPrint(r,100);
+    }
+    else{ OutBufferPrint(r,10);}
+  }}
+  return;
+   //Serial.print(rArg);
+    Serial.print(" ");
+    //Serial.print(counter);
+    //Serial.print(" ");
+    Serial.print(r);
+    Serial.print(" ");
+    Serial.print(filterC/filterH);
+    //Serial.print(" ");
+    //Serial.print(topLow);
+    Serial.print(" ");
+    Serial.print(rArgBlink);
+    Serial.println(" "); 
+    return;
+}
